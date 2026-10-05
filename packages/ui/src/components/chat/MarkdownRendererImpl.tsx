@@ -43,6 +43,7 @@ import {
   type MermaidControlOptions,
   type MermaidRender,
 } from './markdown/decorate';
+import { MarkdownInlineImageHydrator } from './markdown/markdownInlineImages';
 import type { RenderedCopyFormat } from './markdown/selectionMarkdown';
 import { findTextPosition } from './markdown/textPosition';
 import { createMermaidViewerRegistry, MERMAID_BLOCK_SELECTOR, shouldRefreshMermaidViewers } from './markdown/mermaidViewer';
@@ -1294,9 +1295,11 @@ const MarkdownRendererImpl: React.FC<MarkdownRendererProps> = ({
   const syntaxVars = React.useMemo(() => getMarkdownSyntaxVars(currentTheme), [currentTheme]);
   const ctx = useDecorateContext(currentTheme, live, effectiveDirectory ? handlePreviewLoopback : undefined, DEFAULT_MERMAID_CONTROLS);
   const { locale } = useI18n();
-  // Assistant images live in the gallery under the message; tool output and
-  // reasoning draw local images and link remote ones (see MarkdownImageMode).
-  const imageMode: MarkdownImageMode = variant === 'assistant' ? 'label' : 'local';
+  // Assistant images draw in place when the server can grant the file and
+  // fall back to the filename label when it cannot; the gallery keeps showing
+  // its own thumbnails underneath. Tool output and reasoning draw local images
+  // and link remote ones (see MarkdownImageMode).
+  const imageMode: MarkdownImageMode = variant === 'assistant' ? 'assistant-local' : 'local';
   const settledPart = part
     && (part.type === 'text' || part.type === 'reasoning')
     && part.time?.end !== undefined
@@ -1335,6 +1338,40 @@ const MarkdownRendererImpl: React.FC<MarkdownRendererProps> = ({
     domCacheKey,
     tableLayoutSettled: !isStreaming,
   });
+
+  // Fill `src` on the local images assistant text referenced. Only a settled
+  // part has the session/message identity the grant route verifies against,
+  // and only once the DOM holds rendered blocks, so a streaming turn keeps its
+  // labels and the grant runs once per finished message instead of per step.
+  const imageIdentity = !live && settledSessionID && settledMessageID && effectiveDirectory
+    ? { sessionId: settledSessionID, messageId: settledMessageID }
+    : null;
+  const imageSessionId = imageIdentity?.sessionId;
+  const imageMessageId = imageIdentity?.messageId;
+  React.useEffect(() => {
+    if (!imageSessionId || !imageMessageId || !containerRef.current) return;
+    const container = containerRef.current;
+    let hydrator: MarkdownInlineImageHydrator | null = null;
+    const attach = (): boolean => {
+      if (!container.querySelector('img[data-oc-md-image-source]')) return false;
+      hydrator = new MarkdownInlineImageHydrator(container, {
+        directory: effectiveDirectory,
+        sessionId: imageSessionId,
+        messageId: imageMessageId,
+      });
+      hydrator.start();
+      return true;
+    };
+    // The blocks are in the DOM by the time the reveal gate opens, but a
+    // settled message restored from the DOM cache mounts them in an earlier
+    // effect, so wait a tick when the placeholder is not there yet.
+    if (attach()) return () => hydrator?.dispose();
+    const frame = window.requestAnimationFrame(attach);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      hydrator?.dispose();
+    };
+  }, [containerRef, effectiveDirectory, imageMessageId, imageSessionId]);
 
   const markdownContent = (
     <div className={cn('break-words w-full min-w-0', className)} ref={containerRef}>

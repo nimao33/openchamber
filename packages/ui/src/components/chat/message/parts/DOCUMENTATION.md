@@ -177,31 +177,60 @@ finished with `stop`, so no tool patch is parsed while the turn streams.
   `components/views/files/DOCUMENTATION.md`). Safe custom application links go through the
   app-link confirmation flow in every supported renderer, including VS Code.
 - Final assistant Markdown rendering is independent from image gallery
-  extraction: gallery presence never changes the chat body. Assistant image
-  syntax consistently renders as a shared image icon followed by its filename,
-  without loading the image in the body; tool and simple Markdown retain normal
-  inline image rendering. The gallery separately collects HTTP(S), embedded, and workspace-local
-  PNG/JPEG/GIF/WebP image candidates into one 100px thumbnail gallery in the
+  extraction: gallery presence never changes the chat body. A **local** image an
+  assistant references draws in place, sized as asked; an **HTTP(S)** image stays
+  a shared image icon followed by its filename, without loading it in the body,
+  because a load reports to its server what the user is reading. Tool and simple
+  Markdown retain normal inline image rendering.
+  The in-place image (`MarkdownImageMode`'s `assistant-local`) is emitted with
+  no `src`: the source rides in `data-oc-md-image-source` and
+  `markdownInlineImages` fills `src` only after the server grants that exact
+  file, so a path never becomes an unverified browser request. An image the
+  server refuses or cannot read is replaced by the same filename label, which is
+  why a failed load looks like the old behavior rather than a broken image. The
+  grant runs on a settled part only, because a session and message identity is
+  what the route verifies against; during streaming the label shows and the
+  image appears when the message settles.
+  Size is the Markdown title - the one free-text slot image syntax has -
+  `![alt](shot.png "640x480")` or `"640"` for width alone, clamped to 1-4000px
+  with the column's `max-width` still capping the result.
+  The gallery separately collects HTTP(S), embedded, and workspace-local
+  PNG/JPEG/GIF/WebP image candidates into one text row of filenames in the
   message-completion area after all message text and above the turn's changed
-  files. Each muted filename caption includes the shared image-file icon.
-  HTTP(S) images keep their browser URL. Embedded and workspace-local images
+  files. It draws no thumbnail of its own, because a message that draws its
+  images in place would otherwise show each one twice; a click still opens the
+  pre-existing attachment image preview overlay. HTTP(S) images keep their
+  browser URL. Embedded and workspace-local images
   are limited to 10 MiB and validated as PNG/JPEG/GIF/WebP. Chat Markdown uses
-  the assistant image-label policy without gallery-specific link rewriting,
+  the assistant image policy without gallery-specific link rewriting,
   completion-state switching, or hidden placeholders. A
   completed assistant message hydrates at most 12 unique image candidates,
   including persisted text parts that omit their optional part-level end time.
   In server-backed runtimes, a gallery approaching the viewport prepares all
   local candidates in one message-level request, then reuses the authenticated
-  `/api/fs/raw` asset route. Each URL loads only when its thumbnail approaches
+  `/api/fs/raw` asset route. Each URL is resolved only when its entry approaches
   the viewport. VS Code instead loads workspace-contained images through its
   local filesystem bridge and never calls the server grant route; OpenCode
-  temporary-directory images remain unsupported there. Mounted historical
+  temporary-directory images remain unsupported there, and because the grant
+  route is what fills `src`, so does in-place drawing there. Mounted historical
   messages therefore do not eagerly read every image.
   Gallery clicks do not introduce or alter preview chrome: desktop and mobile
   both reuse the pre-existing attachment image preview overlay.
   Workspace-external images receive the existing path-bound `outsideFileGrant`
   only when the server verifies the exact source in the owning assistant
   message and the real file is inside OpenCode's dedicated temporary directory.
+- An **undelimited** LaTeX expression in message text renders. `$...$`,
+  `$$...$$`, `\(...\)` and `\[...\]` already did; a model answering "R excluding
+  1" with `R \setminus {1}` and no delimiter did not, which is the case in the
+  linked discussion. A bare run is typeset only when it starts with a command
+  that is essentially never prose (a set/relation/operator symbol, a Greek or
+  blackboard letter, or a structural command) and continues only through a
+  brace group, another command, an operator or a digit. That boundary is load
+  bearing: allowing a bare letter after whitespace made `\setminus {1} and
+  \alpha` one run and rendered the word "and" as three italic maths variables.
+  `C:\Users\me`, `tab\there`, `\\server\share` and `line\nbreak` stay text
+  because their commands are not in the list. Code spans, fences and KaTeX's own
+  `annotation` element are split out, so finished math is never typeset twice.
 - `read` and `skill` are **static navigation tools** and render via `StaticToolRow`.
 - Every other tool, including search/fetch, OpenCode built-ins, custom tools, plugins, and MCP tools, is **expandable** and renders through `ToolPart`.
 - The managed `openchamber` plugin tool uses the expandable path and hides its broad protocol input. The plugin supplies the selected action's human description as the native tool title; the UI renders that metadata without owning an action map. The full versioned result envelope renders through the same neutral JSON summary/tree/raw views as other tools, without a tool-specific output card.
@@ -213,7 +242,7 @@ finished with `stop`, so no tool patch is parsed while the turn streams.
   JS script (`input.code`) calling the MCP and integration tools as functions.
   The row is named **Script** (`toolHelpers.ts`), uses the `braces` icon, and is
   described by `metadata.toolCalls`: the called tool names deduplicated in
-  first-seen order with a `×N` repeat count, at most four named and the rest
+  first-seen order with a `ÖN` repeat count, at most four named and the rest
   counted as `+N more`. That is the `tools` description kind in
   `@/lib/opencode/tools`; while the script is running, or if it called nothing,
   the row falls back to the script's first line, capped like a shell command.

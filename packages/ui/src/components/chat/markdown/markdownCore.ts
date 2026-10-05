@@ -39,8 +39,17 @@ export interface MarkdownImageCandidate {
  * A remote image loads by itself the moment it renders, so in output the
  * model or a tool wrote (tool results, reasoning) it could report what the
  * user is reading to any server; a link waits for a click.
+ *
+ * `assistant-local` is `label` for a remote source and a drawn local one, and
+ * it is the only mode that draws a path. The rendered `<img>` carries no
+ * `src`: a path on disk has no address the browser can open, and the app runs
+ * on another machine than the file. `markdownInlineImages` fills `src` after
+ * the server has verified the exact source and minted its authenticated asset
+ * URL, so the same privacy rule as the gallery holds: only a workspace path or
+ * one inside OpenCode's temporary directory is ever read, and a remote image
+ * still waits for a click.
  */
-export type MarkdownImageMode = 'inline' | 'label' | 'local';
+export type MarkdownImageMode = 'inline' | 'label' | 'local' | 'assistant-local';
 
 export const isRemoteMarkdownImageSource = (source: string): boolean => /^(?:https?:)?\/\//i.test(source);
 
@@ -51,7 +60,10 @@ export const isRemoteMarkdownImageSource = (source: string): boolean => /^(?:htt
  */
 export type MarkdownRawHtmlMode = 'escape' | 'sanitize';
 
-export const MAX_MARKDOWN_IMAGE_COUNT = 12;
+// One message may prepare this many images; the count lives with the grant
+// path so the inline renderer and the gallery cannot drift apart.
+export { MAX_MARKDOWN_IMAGE_COUNT } from './markdownImageAssets';
+import { MAX_MARKDOWN_IMAGE_COUNT } from './markdownImageAssets';
 
 const MARKDOWN_IMAGE_CANDIDATE_CACHE_MAX_ENTRIES = 1024;
 const MARKDOWN_IMAGE_CANDIDATE_CACHE_MAX_BYTES = 2 * 1024 * 1024;
@@ -188,6 +200,52 @@ const renderMarkdownImageLabel = ({
   // one (a badge): a link cannot hold another.
   if (!isRemoteMarkdownImageSource(href ?? '') || markdownLinkDepth > 0) return span;
   return `<a href="${escapeAttr(href)}" class="external-link" target="_blank" rel="noopener noreferrer">${span}</a>`;
+};
+
+// An image the agent asked to size puts the size in the Markdown title, the
+// one free-text slot image syntax has: `![after login](shot.png "640x480")`,
+// or `"640"` for width alone. Markdown itself has no size syntax, so this is
+// the narrowest place to add one - and it is also the part an agent has to be
+// told about, which the shareable skill covers.
+//
+// The values are clamped here, so a mistaken or hostile message cannot ask for
+// a 40000px-wide element. CSS still caps the width at the column, so an
+// explicit size never overflows the chat.
+const MAX_INLINE_IMAGE_EDGE_PX = 4000;
+
+const parseInlineImageSize = (title?: string | null): { width?: number; height?: number } => {
+  const match = /^\s*(\d{1,4})\s*(?:[x\u00d7,]\s*(\d{1,4})\s*)?$/.exec(title ?? '');
+  if (!match) return {};
+  const usable = (value: number | undefined): value is number => (
+    value !== undefined && Number.isInteger(value) && value >= 1 && value <= MAX_INLINE_IMAGE_EDGE_PX
+  );
+  const width = Number(match[1]);
+  if (!usable(width)) return {};
+  const height = match[2] === undefined ? undefined : Number(match[2]);
+  return height === undefined ? { width } : usable(height) ? { width, height } : { width };
+};
+
+/**
+ * A local image in assistant text, drawn in place of the filename label. No
+ * `src` yet: `markdownInlineImages` sets one after the server grants the file,
+ * and turns the element into the same filename label when it cannot. The
+ * source rides in a data attribute rather than the `src` so a parse failure
+ * can never turn into a request for an unverified path.
+ */
+const renderAssistantLocalImage = ({ href, title, text }: {
+  href: string;
+  title?: string | null;
+  text: string;
+}): string => {
+  const source = href ?? '';
+  const filename = getMarkdownImageFilename(source, text) || 'image';
+  const size = parseInlineImageSize(title);
+  // Width rides on the attribute, so the stylesheet's `max-width: 100%` keeps
+  // capping it. Height has to be inline: the base rule sets `height: auto` and
+  // a stylesheet beats a presentational attribute.
+  const widthAttr = size.width === undefined ? '' : ` width="${size.width}"`;
+  const styleAttr = size.height === undefined ? '' : ` style="height:${size.height}px"`;
+  return `<img data-oc-md-image-source="${escapeAttr(source)}" data-oc-md-image-filename="${escapeAttr(filename)}"${widthAttr} alt="${escapeAttr(filename)}" class="markdown-inline-image"${styleAttr} loading="lazy" decoding="async">`;
 };
 
 export const extractMarkdownImageCandidates = (
@@ -689,6 +747,16 @@ const createParser = (imageMode: MarkdownImageMode, rawHtml: MarkdownRawHtmlMode
         ...(imageMode === 'local'
           ? { image: (token: Tokens.Image) => (isRemoteMarkdownImageSource(token.href ?? '') ? renderMarkdownImageLabel(token) : false) }
           : {}),
+        // A remote image stays a label here too: it is the same privacy rule
+        // `label` exists for. Only a local path is drawn, and only once the
+        // grant has been verified.
+        ...(imageMode === 'assistant-local'
+          ? {
+            image: (token: Tokens.Image) => (isRemoteMarkdownImageSource(token.href ?? '')
+              ? renderMarkdownImageLabel(token)
+              : renderAssistantLocalImage(token)),
+          }
+          : {}),
       },
     },
   );
@@ -697,12 +765,14 @@ const createParser = (imageMode: MarkdownImageMode, rawHtml: MarkdownRawHtmlMode
 const inlineImageParser = createParser('inline', 'escape');
 const imageLabelParser = createParser('label', 'escape');
 const localImageParser = createParser('local', 'escape');
+const assistantLocalImageParser = createParser('assistant-local', 'escape');
 const documentParser = createParser('inline', 'sanitize');
 
 const parserFor = (imageMode: MarkdownImageMode, rawHtml: MarkdownRawHtmlMode) => {
   if (rawHtml === 'sanitize') return documentParser;
   if (imageMode === 'label') return imageLabelParser;
-  return imageMode === 'local' ? localImageParser : inlineImageParser;
+  if (imageMode === 'local') return localImageParser;
+  return imageMode === 'assistant-local' ? assistantLocalImageParser : inlineImageParser;
 };
 
 // ---------------------------------------------------------------------------
@@ -745,15 +815,111 @@ const MATH_DOLLAR_RE =
 const DOLLAR_AMOUNT_RE = /^[\d.,\s]+$/;
 
 const renderMathInText = (text: string): string =>
-  text.replace(MATH_DOLLAR_RE, (match, display: string | undefined, inline: string | undefined) => {
-    if (display !== undefined) {
-      return renderKatex(unescapeHtml(display), match, true);
-    }
-    // The quote guard also runs on the decoded text, where `&quot;` is a quote.
-    if (inline !== undefined && !unescapeHtml(inline).includes('"') && !DOLLAR_AMOUNT_RE.test(inline)) {
-      return renderKatex(unescapeHtml(inline), match, false);
-    }
-    return match;
+  renderBareLatexInText(
+    text.replace(MATH_DOLLAR_RE, (match, display: string | undefined, inline: string | undefined) => {
+      if (display !== undefined) {
+        return renderKatex(unescapeHtml(display), match, true);
+      }
+      // The quote guard also runs on the decoded text, where `&quot;` is a quote.
+      if (inline !== undefined && !unescapeHtml(inline).includes('"') && !DOLLAR_AMOUNT_RE.test(inline)) {
+        return renderKatex(unescapeHtml(inline), match, false);
+      }
+      return match;
+    }),
+  );
+
+// A model asked for "R excluding 1" often answers with bare LaTeX and no
+// delimiter at all: `R \setminus {1}`. Delimiters are the one thing a reader
+// cannot infer, so a delimited expression renders while the same expression
+// bare stays backslash soup. A run is typeset only when it opens with a command
+// that is essentially never prose: a set/relation/operator symbol, a Greek or
+// blackboard letter, or a structural command.
+//
+// `\n`, `\t`, `\u` and friends are not in the list, which is what keeps a
+// Windows path (`C:\Users\me`), an escape sequence and a UNC share (`\\server`)
+// as text. `\\` is consumed first so an escaped backslash never starts a run,
+// and the command list is matched whole (`\cup` never matches inside `\cupert`).
+const BARE_MATH_LEADING_COMMANDS = new Set([
+  // blackboard, script, fraktur and other letter alphabets
+  'mathbb', 'mathcal', 'mathfrak', 'mathscr', 'mathsf', 'mathtt', 'boldsymbol', 'bm',
+  // Greek letters, upper and lower case
+  'alpha', 'beta', 'gamma', 'delta', 'epsilon', 'varepsilon', 'zeta', 'eta', 'theta', 'vartheta',
+  'iota', 'kappa', 'lambda', 'mu', 'nu', 'xi', 'pi', 'varpi', 'rho', 'varrho', 'sigma', 'varsigma',
+  'tau', 'upsilon', 'phi', 'varphi', 'chi', 'psi', 'omega', 'Gamma', 'Delta', 'Theta', 'Lambda', 'Xi',
+  'Pi', 'Sigma', 'Upsilon', 'Phi', 'Psi', 'Omega',
+  // relations and operators
+  'cup', 'cap', 'setminus', 'oplus', 'otimes', 'times', 'div', 'pm', 'mp', 'cdot', 'ast', 'star',
+  'leq', 'le', 'geq', 'ge', 'neq', 'ne', 'equiv', 'approx', 'sim', 'simeq', 'cong', 'propto',
+  'subset', 'supset', 'subseteq', 'supseteq', 'in', 'notin', 'ni', 'forall', 'exists', 'neg',
+  'land', 'lor', 'wedge', 'vee', 'oplus', 'circ', 'bullet', 'oplus',
+  // structure
+  'frac', 'dfrac', 'tfrac', 'cfrac', 'sqrt', 'sum', 'prod', 'coprod', 'int', 'iint', 'iiint',
+  'oint', 'bigcup', 'bigcap', 'lim', 'limsup', 'liminf', 'max', 'min', 'sup', 'inf', 'arg',
+  'log', 'ln', 'exp', 'sin', 'cos', 'tan', 'det', 'dim', 'ker', 'gcd', 'deg', 'hom',
+  'to', 'rightarrow', 'leftarrow', 'Rightarrow', 'Leftarrow', 'leftrightarrow', 'iff', 'mapsto',
+  'implies', 'iff', 'partial', 'nabla', 'infty', 'ldots', 'cdots', 'dots', 'prime',
+  'angle', 'perp', 'parallel', 'mid', 'setminus', 'oplus',
+]);
+
+// One letter LaTeX is ordinary prose in a sentence ("x is not y"), so a bare
+// run must be anchored by a real command - the pattern below only starts at
+// one. Runs longer than this are a code listing or a table, not an expression
+// someone is reading.
+const MAX_BARE_MATH_LENGTH = 200;
+
+// A bare run may continue past its first command with a brace group, another
+// command, an operator or a digit - and with nothing else. Letters are only
+// reachable through a command or straight after `^`/`_`. That is deliberate:
+// an earlier version also allowed a bare letter after whitespace, which made
+// `\setminus {1} and \alpha` a single run and rendered the word "and" as three
+// italic maths variables. Prose between two expressions is the common case, so
+// the run has to stop at the first ordinary word.
+const BARE_MATH_COMMAND_RE = new RegExp(
+  `\\\\(?:${[...BARE_MATH_LEADING_COMMANDS].join('|')})(?![A-Za-z])`
+  + '(?:\\s*\\{[^{}]*\\}|\\s*\\\\[A-Za-z]+|[_^]\\s?[A-Za-z0-9]|\\s*[_0-9=<>+\\-*/^|]|[_0-9=<>+\\-*/^|])*',
+  'g',
+);
+
+// KaTeX keeps the source it was given inside an annotation element, so the
+// math this module just rendered is itself a region of backslash commands.
+// This pass runs on the output of the dollar pass, so it has to protect those
+// regions itself: without the split, `\cup A` inside `$\cup A$` would be
+// typeset a second time by the pass that is only meant to catch undelimited
+// math. Code spans and fences are protected for the same reason.
+const PROTECTED_MATH_REGION_RE = /(<(?:pre|code|kbd|annotation)[^>]*>[\s\S]*?<\/(?:pre|code|kbd|annotation)>)/gi;
+
+const renderBareLatexInText = (text: string): string =>
+  text
+    .split(PROTECTED_MATH_REGION_RE)
+    .map((part, index) => (index % 2 === 1 ? part : renderBareLatexSegment(part)))
+    .join('');
+
+// `BARE_MATH_COMMAND_RE` has no capture groups, so the replacer signature is
+// (match, offset, whole) — not (match, capture, offset, whole). Reading the
+// offset as the string makes every guard below compare against `undefined` and
+// silently pass, so every backslash run would typeset.
+const renderBareLatexSegment = (text: string): string =>
+  text.replace(BARE_MATH_COMMAND_RE, (match: string, offset: number) => {
+    // An odd backslash run before the match means this one is escaped, so the
+    // text is a literal backslash and not the start of math.
+    let preceding = 0;
+    for (let cursor = offset - 1; cursor >= 0 && text[cursor] === '\\'; cursor -= 1) preceding += 1;
+    if (preceding % 2 === 1) return match;
+
+    const math = unescapeHtml(match);
+    if (math.length > MAX_BARE_MATH_LENGTH) return match;
+    // A letter on either side means the run is embedded in a word or identifier,
+    // not an expression. A digit before it means the same (`3\pm`, a clock time
+    // in LaTeX); a digit after it is fine, because an expression legitimately
+    // ends in a number (`\cup 2`).
+    const before = offset > 0 ? text[offset - 1] ?? '' : '';
+    const after = text[offset + match.length] ?? '';
+    if (/[A-Za-z0-9]/.test(before) || /[A-Za-z]/.test(after)) return match;
+
+    const rendered = renderKatex(math, match, false);
+    // KaTeX with throwOnError:false renders its own error markup for bad input.
+    // Anything that comes back as the untouched source stays text.
+    return rendered === match ? match : rendered;
   });
 
 // Math runs per text run, mirroring how KaTeX auto-render walks DOM text
@@ -768,11 +934,16 @@ const renderMathInTextRun = (part: string): string =>
     .join('');
 
 const renderMathExpressions = (html: string): string => {
-  // No `$` anywhere means no math to render — skip the split + regex passes on
-  // the hot streaming path (the overwhelming majority of blocks have no math).
-  if (html.indexOf('$') === -1) return html;
+  // Nothing that could start math means no math to render — skip the split +
+  // regex passes on the hot streaming path (most blocks have no math at all).
+  // Bare LaTeX starts with a backslash, delimited math with `$`.
+  if (html.indexOf('$') === -1 && html.indexOf('\\') === -1) return html;
 
-  const codeBlockPattern = /(<(?:pre|code|kbd)[^>]*>[\s\S]*?<\/(?:pre|code|kbd)>)/gi;
+  // `annotation` carries the original TeX source that KaTeX already rendered
+  // (`<annotation encoding="application/x-tex">\mathbb{R}</annotation>`).
+  // It must be split out with the code elements, or the bare pass would find
+  // that source again and typeset a second time inside finished math.
+  const codeBlockPattern = /(<(?:pre|code|kbd|annotation)[^>]*>[\s\S]*?<\/(?:pre|code|kbd|annotation)>)/gi;
   return html
     .split(codeBlockPattern)
     .map((part, index) => (index % 2 === 1 ? part : renderMathInTextRun(part)))

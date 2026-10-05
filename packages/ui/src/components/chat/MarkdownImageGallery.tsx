@@ -1,6 +1,5 @@
 import React from 'react';
 import { toast } from 'sonner';
-import { Icon } from '@/components/icon/Icon';
 import { useEffectiveDirectory } from '@/hooks/useEffectiveDirectory';
 import { useI18n } from '@/lib/i18n';
 import {
@@ -81,7 +80,7 @@ const MarkdownImageThumbnail: React.FC<{
   onShowPopup,
 }) => {
   const { t } = useI18n();
-  const thumbnailRef = React.useRef<HTMLButtonElement>(null);
+  const entryRef = React.useRef<HTMLButtonElement>(null);
   const [shouldLoad, setShouldLoad] = React.useState(false);
   const [image, setImage] = React.useState<{ url: string; status: 'loading' | 'ready' | 'error' }>({
     url: '',
@@ -90,21 +89,25 @@ const MarkdownImageThumbnail: React.FC<{
   const local = isLocalMarkdownImageSource(candidate.source);
 
   React.useEffect(() => {
-    const thumbnail = thumbnailRef.current;
-    if (!thumbnail || shouldLoad) return;
+    const entry = entryRef.current;
+    if (!entry || shouldLoad) return;
     if (typeof IntersectionObserver === 'undefined') {
       setShouldLoad(true);
       return;
     }
     const observer = new IntersectionObserver((entries) => {
-      if (!entries.some((entry) => entry.isIntersecting)) return;
+      if (!entries.some((entry_) => entry_.isIntersecting)) return;
       setShouldLoad(true);
       observer.disconnect();
     }, { rootMargin: '200px' });
-    observer.observe(thumbnail);
+    observer.observe(entry);
     return () => observer.disconnect();
   }, [shouldLoad]);
 
+  // The entry draws no thumbnail, so it cannot learn readiness from an `img`
+  // load event. A resolved, granted URL is what "ready" now means; the preview
+  // overlay reports its own failure if the bytes do not decode. That also means
+  // a broken image costs one click instead of a silent placeholder forever.
   React.useEffect(() => {
     if (!shouldLoad || (local && !useWorkspaceFsBridge && !preparation)) return;
     if (local && useWorkspaceFsBridge) {
@@ -112,7 +115,7 @@ const MarkdownImageThumbnail: React.FC<{
       setImage({ url: '', status: 'loading' });
       void resolveWorkspaceMarkdownImageSource(candidate.source, directory, controller.signal).then((url) => {
         if (controller.signal.aborted) return;
-        setImage({ url, status: 'loading' });
+        setImage({ url, status: 'ready' });
       }).catch(() => {
         if (controller.signal.aborted) return;
         setImage({ url: '', status: 'error' });
@@ -125,14 +128,14 @@ const MarkdownImageThumbnail: React.FC<{
         return;
       }
       if (!assetAuthReady) return;
-      setImage({ url: getPreparedMarkdownImageUrl(preparation, directory), status: 'loading' });
+      setImage({ url: getPreparedMarkdownImageUrl(preparation, directory), status: 'ready' });
       return;
     }
     const controller = new AbortController();
     setImage({ url: '', status: 'loading' });
     void resolveMarkdownImageSource(candidate.source, controller.signal).then((url) => {
       if (controller.signal.aborted) return;
-      setImage({ url, status: 'loading' });
+      setImage({ url, status: 'ready' });
     }).catch(() => {
       if (controller.signal.aborted) return;
       setImage({ url: '', status: 'error' });
@@ -157,43 +160,18 @@ const MarkdownImageThumbnail: React.FC<{
 
   return (
     <button
-      ref={thumbnailRef}
+      ref={entryRef}
       type="button"
-      className="w-[100px] shrink-0 text-left outline-none focus-visible:ring-2 focus-visible:ring-[var(--interactive-focus-ring)]"
+      className="max-w-[220px] truncate rounded-md px-1.5 py-0.5 text-left text-muted-foreground underline decoration-dotted underline-offset-2 outline-none transition-colors hover:bg-interactive-hover/60 hover:text-foreground focus-visible:ring-2 focus-visible:ring-[var(--interactive-focus-ring)]"
       aria-label={candidate.filename}
+      title={candidate.filename}
       disabled={image.status === 'loading'}
       onClick={openPreview}
       data-openchamber-markdown-image-action="true"
       data-openchamber-markdown-image-source={candidate.source}
       data-openchamber-markdown-image-filename={candidate.filename}
     >
-      <span className="flex h-[72px] w-[100px] items-center justify-center overflow-hidden rounded-lg border border-border/40 bg-muted/10">
-        {image.url && image.status !== 'error' ? (
-          <img
-            src={image.url}
-            alt={candidate.filename}
-            className="h-full w-full object-contain"
-            loading="lazy"
-            decoding="async"
-            referrerPolicy="no-referrer"
-            onLoad={() => setImage((current) => ({ ...current, status: 'ready' }))}
-            onError={() => setImage({ url: '', status: 'error' })}
-            data-openchamber-markdown-image="true"
-            data-openchamber-markdown-image-thumbnail="true"
-            data-openchamber-markdown-image-state={image.status}
-          />
-        ) : (
-          <Icon name="file-image" className="h-5 w-5 text-muted-foreground" />
-        )}
-      </span>
-      <span
-        className="mt-1 flex w-[100px] items-center justify-center gap-1 text-muted-foreground"
-        title={candidate.filename}
-        data-openchamber-markdown-image-caption="true"
-      >
-        <Icon name="file-image" className="h-3 w-3 shrink-0" />
-        <span className="min-w-0 truncate typography-meta">{candidate.filename}</span>
-      </span>
+      <span className="typography-meta">{candidate.filename}</span>
     </button>
   );
 };
@@ -277,9 +255,13 @@ export const MarkdownImageGallery: React.FC<{
   if (visibleCandidates.length === 0) return null;
 
   return (
-    <div
+    // Text entries, not thumbnails: an assistant message that draws its images in
+// place would otherwise show every one of them twice, 100px wide, under the
+// answer. The row stays the single place that lists what the message
+// references, and a click still opens the existing preview overlay.
+<div
       ref={galleryRef}
-      className="mt-3 flex max-w-full gap-2 overflow-x-auto pb-1"
+      className="mt-3 flex max-w-full flex-wrap items-center gap-x-3 gap-y-1"
       data-openchamber-markdown-image-gallery="true"
     >
       {visibleCandidates.map((candidate) => (

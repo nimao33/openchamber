@@ -4,6 +4,15 @@ import { getRuntimeUrlResolver, type RuntimeUrlResolver } from '@/lib/runtime-ur
 import { isFilePathWithinDirectory, toAbsoluteFilePath } from '@/lib/path-utils';
 
 const MAX_MARKDOWN_IMAGE_BYTES = 10 * 1024 * 1024;
+
+/**
+ * How many images one message may prepare. The gallery collects at most this
+ * many candidates and the inline renderer hydrates at most this many, so a
+ * message that lists hundreds of images costs one bounded grant request
+ * rather than hundreds of file reads. Re-exported from `markdownCore`, which
+ * owns the candidate scan.
+ */
+export const MAX_MARKDOWN_IMAGE_COUNT = 12;
 const MAX_PREPARE_CACHE_ENTRIES = 1024;
 const NON_READY_CACHE_MS = 30_000;
 const SUPPORTED_IMAGE_MIME_TYPES = new Set([

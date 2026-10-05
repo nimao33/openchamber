@@ -8,9 +8,11 @@ different machine.
 
 ## Contract
 
-- Chat Markdown rendering is independent: assistant image syntax renders as an
-  icon and filename, while the gallery only reads finalized Markdown to collect
-  image candidates.
+- Chat Markdown rendering is independent: assistant image syntax draws a local
+  image in place and turns a remote one into a filename label, while the gallery
+  collects the same sources into a text row of filenames. Both consume this
+  route's per-source results; the gallery only reads finalized Markdown to
+  collect image candidates.
 - `POST /api/openchamber/sessions/:sessionId/markdown-image-grants` prepares up to 12
   local images in one message-level request. The server fetches the assistant
   message once and verifies every exact image source before reading files.
@@ -25,8 +27,9 @@ different machine.
   reuse the existing authenticated `/api/fs/raw` asset route directly. Images
   under `os.tmpdir()/opencode` receive the existing path-bound `raw`
   `outsideFileGrant`; this module does not add another asset lifetime, copy, or
-  storage layer. Missing files return per-source results so the gallery can
-  remove only those items.
+  storage layer. Missing files return per-source results so both consumers can
+  drop only those items: the gallery removes the row, the in-body image falls
+  back to its filename label.
 
 The routes are OpenChamber-owned and must be registered before the generic
 OpenCode proxy. Web, Electron, hosted mobile, and Capacitor use the shared
