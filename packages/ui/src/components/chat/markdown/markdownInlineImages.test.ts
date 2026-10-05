@@ -6,6 +6,8 @@ let preparedResult: Map<string, { status: string; path?: string; outsideFileGran
 let urlResolverCalls = 0;
 let grantFails = false;
 
+const MAX_MARKDOWN_IMAGE_COUNT = 12;
+
 mock.module('./markdownImageAssets', () => ({
   MAX_MARKDOWN_IMAGE_COUNT: 12,
   isLocalMarkdownImageSource: (source: string) => !/^(?:https?:)?\/\//i.test(source) && !/^data:/i.test(source),
@@ -31,12 +33,15 @@ mock.module('@/lib/runtime-auth', () => ({
   subscribeRuntimeUrlAuthToken: () => () => {},
 }));
 
-// The hydrator builds its fallback label with the ambient `document`, so the
-// happy-dom window has to be installed as the global before any test runs —
-// assigning and restoring it inside the file body would restore it before bun
-// executes the tests.
+// The hydrator builds its fallback label with the ambient `document` and watches
+// the container with the ambient `MutationObserver`, so the happy-dom window has
+// to be installed as the global before any test runs - assigning and restoring
+// it inside the file body would restore it before bun executes the tests.
 const win = new Window();
-(globalThis as { document?: unknown }).document = win.document;
+Object.assign(globalThis, {
+  document: win.document,
+  MutationObserver: win.MutationObserver,
+});
 
 const { MarkdownInlineImageHydrator } = await import('./markdownInlineImages');
 
@@ -47,6 +52,18 @@ const buildRoot = (html: string): HTMLElement => {
 };
 
 const IMAGE = '<img data-oc-md-image-source="screens/a.png" data-oc-md-image-filename="a.png" alt="a.png" class="markdown-inline-image">';
+
+/**
+ * Let the grant promise chain and the MutationObserver callback both run.
+ * happy-dom delivers observer records on a macrotask, so this yields to the
+ * timer queue as well as draining microtasks, and keeps the tests free of
+ * arbitrary sleeps.
+ */
+const settle = async (turns = 3): Promise<void> => {
+  for (let turn = 0; turn < turns; turn += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+};
 
 describe('MarkdownInlineImageHydrator', () => {
   beforeEach(() => {
@@ -140,7 +157,71 @@ describe('MarkdownInlineImageHydrator', () => {
     ]);
   });
 
-  test('does nothing when the message has no image', async () => {
+  test('re-asserts the granted src after the renderer re-writes the same HTML', async () => {
+    // The bug this pins: a settled block is painted synchronously, then morphdom
+    // re-applies the same HTML once the async parse resolves and strips every
+    // attribute the incoming markup does not carry - including the src written
+    // in between. The image then sat as an empty box forever.
+    const root = buildRoot(IMAGE);
+    const hydrator = new MarkdownInlineImageHydrator(root, {
+      directory: '/repo',
+      sessionId: 'ses_1',
+      messageId: 'msg_1',
+    });
+    hydrator.start();
+    await settle();
+
+    expect(root.querySelector('img')?.getAttribute('src')).toContain('path=%2Frepo%2Fscreens%2Fa.png');
+
+    // What morphdom does: put the same markup back, without a src.
+    root.innerHTML = IMAGE;
+    expect(root.querySelector('img')?.getAttribute('src')).toBeNull();
+    await settle();
+
+    // And what has to happen next: the grant is still held, so it comes back.
+    expect(root.querySelector('img')?.getAttribute('src')).toContain('path=%2Frepo%2Fscreens%2Fa.png');
+    expect(root.querySelector('img')?.getAttribute('data-oc-md-image-state')).toBe('loading');
+    hydrator.dispose();
+  });
+
+test('falls back per element, so a source referenced twice leaves no empty box', async () => {
+    preparedResult = new Map([['screens/a.png', { status: 'missing' }]]);
+    const root = buildRoot(`${IMAGE}<p>again</p>${IMAGE}`);
+    const hydrator = new MarkdownInlineImageHydrator(root, {
+      directory: '/repo',
+      sessionId: 'ses_1',
+      messageId: 'msg_1',
+    });
+    hydrator.start();
+    await settle();
+
+    // State used to be keyed by source, so only the first copy fell back and
+    // the second stayed a src-less image.
+    expect(root.querySelectorAll('img').length).toBe(0);
+    expect(root.querySelectorAll('[data-openchamber-markdown-image-label="true"]').length).toBe(2);
+    hydrator.dispose();
+  });
+
+test('falls back for the images past the per-message cap', async () => {
+    const many = Array.from({ length: MAX_MARKDOWN_IMAGE_COUNT + 3 }, (_unused, index) =>
+      `<img data-oc-md-image-source="screens/${index}.png" data-oc-md-image-filename="${index}.png">`).join('');
+    preparedResult = new Map([['screens/0.png', { status: 'ready', path: '/repo/screens/0.png' }]]);
+    const root = buildRoot(many);
+    const hydrator = new MarkdownInlineImageHydrator(root, {
+      directory: '/repo',
+      sessionId: 'ses_1',
+      messageId: 'msg_1',
+    });
+    hydrator.start();
+    await settle();
+
+    // One is drawn; nothing is left as an empty box.
+    expect(root.querySelectorAll('img').length).toBe(1);
+    expect(root.querySelectorAll('[data-openchamber-markdown-image-label="true"]').length).toBe(MAX_MARKDOWN_IMAGE_COUNT + 2);
+    hydrator.dispose();
+  });
+
+test('does nothing when the message has no image', async () => {
     const root = buildRoot('<p>plain prose</p>');
     const hydrator = new MarkdownInlineImageHydrator(root, { directory: '/repo', sessionId: 'ses_1', messageId: 'msg_1' });
     hydrator.start();

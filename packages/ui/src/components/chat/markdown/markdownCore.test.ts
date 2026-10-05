@@ -467,7 +467,7 @@ describe('CJK-aware link parsing', () => {
   const hrefOf = (html: string): string | null => /<a\b[^>]*href="([^"]*)"/.exec(html)?.[1] ?? null;
 
   test('bare URL followed by a CJK annotation trims the annotation from the href', () => {
-    const html = renderMarkdownSync('访閮 https://example.com/docs（中文说明）了解更多');
+    const html = renderMarkdownSync('访问 https://example.com/docs（中文说明）了解更多');
     expect(hrefOf(html)).toBe('https://example.com/docs');
   });
 
@@ -788,7 +788,7 @@ describe('Dollar math rendering', () => {
 
   test('renders inline math with a comparison operator', () => {
     // `>` is HTML-escaped by marked before this pass runs.
-    const html = renderMarkdownSync('当 $n > p$ 且 $\\mathrm{rank}(X) = p+1$ 斶可解');
+    const html = renderMarkdownSync('当 $n > p$ 且 $\\mathrm{rank}(X) = p+1$ 时可解');
     expect(html).toContain('katex');
     expect(html).not.toContain('katex-error');
   });

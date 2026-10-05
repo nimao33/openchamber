@@ -249,7 +249,7 @@ finished with `stop`, so no tool patch is parsed while the turn streams.
   JS script (`input.code`) calling the MCP and integration tools as functions.
   The row is named **Script** (`toolHelpers.ts`), uses the `braces` icon, and is
   described by `metadata.toolCalls`: the called tool names deduplicated in
-  first-seen order with a `ÖN` repeat count, at most four named and the rest
+  first-seen order with a `×N` repeat count, at most four named and the rest
   counted as `+N more`. That is the `tools` description kind in
   `@/lib/opencode/tools`; while the script is running, or if it called nothing,
   the row falls back to the script's first line, capped like a shell command.

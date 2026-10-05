@@ -917,9 +917,14 @@ const renderBareLatexSegment = (text: string): string =>
     if (/[A-Za-z0-9]/.test(before) || /[A-Za-z]/.test(after)) return match;
 
     const rendered = renderKatex(math, match, false);
-    // KaTeX with throwOnError:false renders its own error markup for bad input.
-    // Anything that comes back as the untouched source stays text.
-    return rendered === match ? match : rendered;
+    // KaTeX with throwOnError:false paints its own red error markup instead of
+    // throwing, so a run it cannot parse still "succeeds" here. Structurally
+    // incomplete input is common here - `\frac{\bar{x}}{2}` has nested braces
+    // the continuation does not cross - and red fragments beside leftover
+    // literal text read worse than the plain source did. Error markup is
+    // therefore not math: the run stays exactly as the model wrote it.
+    if (rendered === match || rendered.includes('katex-error')) return match;
+    return rendered;
   });
 
 // Math runs per text run, mirroring how KaTeX auto-render walks DOM text

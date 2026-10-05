@@ -1295,11 +1295,20 @@ const MarkdownRendererImpl: React.FC<MarkdownRendererProps> = ({
   const syntaxVars = React.useMemo(() => getMarkdownSyntaxVars(currentTheme), [currentTheme]);
   const ctx = useDecorateContext(currentTheme, live, effectiveDirectory ? handlePreviewLoopback : undefined, DEFAULT_MERMAID_CONTROLS);
   const { locale } = useI18n();
-  // Assistant images draw in place when the server can grant the file and
-  // fall back to the filename label when it cannot; the gallery keeps showing
-  // its own thumbnails underneath. Tool output and reasoning draw local images
-  // and link remote ones (see MarkdownImageMode).
-  const imageMode: MarkdownImageMode = variant === 'assistant' ? 'assistant-local' : 'local';
+  // A local image can only be drawn once the grant route can verify it, and
+  // that needs a settled part (its session and message identity) plus an active
+  // directory. Without all three the body must render the filename label rather
+  // than a placeholder nothing will ever fill, so the mode itself depends on
+  // them. Tool output and reasoning draw local images and link remote ones (see
+  // MarkdownImageMode).
+  const inlineImageIdentity = part
+    && (part.type === 'text' || part.type === 'reasoning')
+    && part.time?.end !== undefined
+    ? { sessionId: part.sessionID, messageId: part.messageID }
+    : null;
+  const imageMode: MarkdownImageMode = variant === 'assistant'
+    ? (inlineImageIdentity?.sessionId && inlineImageIdentity.messageId && effectiveDirectory ? 'assistant-local' : 'label')
+    : 'local';
   const settledPart = part
     && (part.type === 'text' || part.type === 'reasoning')
     && part.time?.end !== undefined
@@ -1339,15 +1348,12 @@ const MarkdownRendererImpl: React.FC<MarkdownRendererProps> = ({
     tableLayoutSettled: !isStreaming,
   });
 
-  // Fill `src` on the local images assistant text referenced. Only a settled
-  // part has the session/message identity the grant route verifies against,
-  // and only once the DOM holds rendered blocks, so a streaming turn keeps its
-  // labels and the grant runs once per finished message instead of per step.
-  const imageIdentity = !live && settledSessionID && settledMessageID && effectiveDirectory
-    ? { sessionId: settledSessionID, messageId: settledMessageID }
-    : null;
-  const imageSessionId = imageIdentity?.sessionId;
-  const imageMessageId = imageIdentity?.messageId;
+  // Fill `src` on the local images assistant text referenced. `imageMode` is
+  // `assistant-local` only when a settled part, its identity and an active
+  // directory are all present, so this cannot attach to a message whose
+  // placeholders nothing would ever fill.
+  const imageSessionId = imageMode === 'assistant-local' ? inlineImageIdentity?.sessionId : undefined;
+  const imageMessageId = imageMode === 'assistant-local' ? inlineImageIdentity?.messageId : undefined;
   React.useEffect(() => {
     if (!imageSessionId || !imageMessageId || !containerRef.current) return;
     const container = containerRef.current;
