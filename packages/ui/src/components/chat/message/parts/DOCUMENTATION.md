@@ -194,6 +194,13 @@ finished with `stop`, so no tool patch is parsed while the turn streams.
   Size is the Markdown title - the one free-text slot image syntax has -
   `![alt](shot.png "640x480")` or `"640"` for width alone, clamped to 1-4000px
   with the column's `max-width` still capping the result.
+  Clicking one opens the shared preview overlay, handed every image the message
+  drew in document order plus the clicked index, so the overlay's own arrows and
+  arrow keys navigate the set (`ToolOutputDialog` reads `image.gallery` and
+  `image.index`). The image carries `role="button"` and `tabindex="0"`, because
+  a click target that cannot be reached by keyboard is not interactive. The
+  listener is delegated, because the images are Markdown output rather than
+  React nodes.
   The gallery separately collects HTTP(S), embedded, and workspace-local
   PNG/JPEG/GIF/WebP image candidates into one text row of filenames in the
   message-completion area after all message text and above the turn's changed

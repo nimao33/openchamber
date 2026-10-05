@@ -173,6 +173,27 @@ export class MarkdownInlineImageHydrator {
 
 export const MARKDOWN_INLINE_IMAGE_ATTRS = { SOURCE_ATTR, FILENAME_ATTR, STATE_ATTR };
 
+export type InlineImagePreview = { url: string; filename: string };
+
+/**
+ * The images of one message that actually drew, in document order, so a click
+ * can open the shared preview overlay with the whole set. The overlay already
+ * draws arrows and binds the arrow keys for a gallery, so this hands it the
+ * list and the clicked index rather than reimplementing navigation.
+ *
+ * Only images with a `src` are included: an ungranted one was replaced by its
+ * filename label and has nothing to open.
+ */
+export const collectInlineImagePreviews = (root: HTMLElement): InlineImagePreview[] => {
+  const previews: InlineImagePreview[] = [];
+  for (const image of root.querySelectorAll<HTMLImageElement>(`img[${SOURCE_ATTR}]`)) {
+    const url = image.getAttribute('src');
+    if (!url) continue;
+    previews.push({ url, filename: image.getAttribute(FILENAME_ATTR) ?? 'image' });
+  }
+  return previews;
+};
+
 /** Test seam: the attribute names the hydrator reads and writes. */
 export const __markdownInlineImageAttrsForTests = {
   source: SOURCE_ATTR,

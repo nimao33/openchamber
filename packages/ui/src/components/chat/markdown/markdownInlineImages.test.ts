@@ -121,6 +121,25 @@ describe('MarkdownInlineImageHydrator', () => {
     hydrator.dispose();
   });
 
+  test('collects the drawn images in document order for the preview overlay', async () => {
+    const root = buildRoot([
+      IMAGE,
+      '<p>between</p>',
+      '<img data-oc-md-image-source="screens/b.png" data-oc-md-image-filename="b.png" src="/api/fs/raw?path=b">',
+      // No src: this one was refused and became a label, so there is nothing
+      // to open and it must not appear in the gallery.
+      '<img data-oc-md-image-source="screens/c.png" data-oc-md-image-filename="c.png">',
+    ].join(''));
+    root.querySelector('img')?.setAttribute('src', '/api/fs/raw?path=a');
+
+    const { collectInlineImagePreviews } = await import('./markdownInlineImages');
+
+    expect(collectInlineImagePreviews(root as unknown as HTMLElement)).toEqual([
+      { url: '/api/fs/raw?path=a', filename: 'a.png' },
+      { url: '/api/fs/raw?path=b', filename: 'b.png' },
+    ]);
+  });
+
   test('does nothing when the message has no image', async () => {
     const root = buildRoot('<p>plain prose</p>');
     const hydrator = new MarkdownInlineImageHydrator(root, { directory: '/repo', sessionId: 'ses_1', messageId: 'msg_1' });

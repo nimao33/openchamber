@@ -1206,6 +1206,14 @@ html:not(.dark) .chat-scroll {
   border: 1px solid color-mix(in oklab, var(--color-border) 40%, transparent);
   background: color-mix(in oklab, var(--color-muted) 10%, transparent);
   object-fit: contain;
+  cursor: zoom-in;
+}
+
+/* The click opens the shared preview overlay, so the image takes a focus ring
+   like every other interactive element in a message. */
+.markdown-content img.markdown-inline-image:focus-visible {
+  outline: 2px solid var(--interactive-focus-ring);
+  outline-offset: 2px;
 }
 
 .markdown-content img.markdown-inline-image[data-oc-md-image-state='loading'] {

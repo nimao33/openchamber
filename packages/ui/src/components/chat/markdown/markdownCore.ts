@@ -245,7 +245,7 @@ const renderAssistantLocalImage = ({ href, title, text }: {
   // a stylesheet beats a presentational attribute.
   const widthAttr = size.width === undefined ? '' : ` width="${size.width}"`;
   const styleAttr = size.height === undefined ? '' : ` style="height:${size.height}px"`;
-  return `<img data-oc-md-image-source="${escapeAttr(source)}" data-oc-md-image-filename="${escapeAttr(filename)}"${widthAttr} alt="${escapeAttr(filename)}" class="markdown-inline-image"${styleAttr} loading="lazy" decoding="async">`;
+  return `<img data-oc-md-image-source="${escapeAttr(source)}" data-oc-md-image-filename="${escapeAttr(filename)}"${widthAttr} alt="${escapeAttr(filename)}" class="markdown-inline-image"${styleAttr} role="button" tabindex="0" loading="lazy" decoding="async">`;
 };
 
 export const extractMarkdownImageCandidates = (

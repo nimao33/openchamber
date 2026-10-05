@@ -43,7 +43,7 @@ import {
   type MermaidControlOptions,
   type MermaidRender,
 } from './markdown/decorate';
-import { MarkdownInlineImageHydrator } from './markdown/markdownInlineImages';
+import { collectInlineImagePreviews, MarkdownInlineImageHydrator } from './markdown/markdownInlineImages';
 import type { RenderedCopyFormat } from './markdown/selectionMarkdown';
 import { findTextPosition } from './markdown/textPosition';
 import { createMermaidViewerRegistry, MERMAID_BLOCK_SELECTOR, shouldRefreshMermaidViewers } from './markdown/mermaidViewer';
@@ -1372,6 +1372,54 @@ const MarkdownRendererImpl: React.FC<MarkdownRendererProps> = ({
       hydrator?.dispose();
     };
   }, [containerRef, effectiveDirectory, imageMessageId, imageSessionId]);
+
+  // A click on an inline image opens the shared preview overlay, handed every
+  // image of this message so the overlay's own arrows and arrow keys work. No
+  // new overlay: desktop and mobile already reuse the attachment preview, and
+  // so does this. Delegated, because the images are markdown output rather
+  // than React nodes.
+  React.useEffect(() => {
+    const container = containerRef.current;
+    if (!container || !onShowPopup) return;
+    const openFrom = (target: EventTarget | null) => {
+      const image = target instanceof Element
+        ? target.closest<HTMLImageElement>('img[data-oc-md-image-source]')
+        : null;
+      if (!image || !container.contains(image)) return;
+      const url = image.getAttribute('src');
+      if (!url) return;
+      const gallery = collectInlineImagePreviews(container);
+      const index = gallery.findIndex((entry) => entry.url === url);
+      if (index < 0) return;
+      const filename = image.getAttribute('data-oc-md-image-filename') ?? 'image';
+      onShowPopup({
+        open: true,
+        title: filename,
+        content: '',
+        metadata: { tool: 'markdown-image-preview', filename },
+        image: { url, filename, gallery, index },
+      });
+    };
+    const onClick = (event: MouseEvent) => {
+      // Let the download/preview affordances keep their own behaviour.
+      if (event.button !== 0) return;
+      openFrom(event.target);
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Enter' && event.key !== ' ') return;
+      const active = document.activeElement;
+      if (!(active instanceof HTMLElement) || !container.contains(active)) return;
+      openFrom(active);
+      // Space would otherwise scroll the timeline.
+      event.preventDefault();
+    };
+    container.addEventListener('click', onClick);
+    container.addEventListener('keydown', onKeyDown);
+    return () => {
+      container.removeEventListener('click', onClick);
+      container.removeEventListener('keydown', onKeyDown);
+    };
+  }, [containerRef, onShowPopup]);
 
   const markdownContent = (
     <div className={cn('break-words w-full min-w-0', className)} ref={containerRef}>
