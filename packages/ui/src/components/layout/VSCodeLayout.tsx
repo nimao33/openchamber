@@ -5,12 +5,12 @@ import { SessionDialogs } from '@/components/session/SessionDialogs';
 import { ChatView } from '@/components/views/ChatView';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { useViewportStore } from '@/sync/viewport-store';
-import { useSessions, useDirectorySync, useSessionMessages, useSessionMessagesResolved } from '@/sync/sync-context';
+import { useSessions, useDirectorySync, useSession, useSessionMessages, useSessionMessagesResolved } from '@/sync/sync-context';
 import { useSubagentCostRollup } from '@/components/chat/work-status/useSubagentCostRollup';
 import { useConfigStore } from '@/stores/useConfigStore';
 import { useContextWindowLimits } from '@/hooks/useContextWindowLimits';
 import { resolveGlobalSessionDirectory, useGlobalSessionsStore } from '@/stores/useGlobalSessionsStore';
-import { buildSessionContextUsage, isSameContextUsage } from '@/stores/utils/tokenUtils';
+import { buildSessionContextUsage, isSameContextUsage, sessionTotalTokens } from '@/stores/utils/tokenUtils';
 import { ContextUsageDisplay } from '@/components/ui/ContextUsageDisplay';
 import { toContextUsageReading } from '@/components/ui/contextUsageReading';
 import { McpDropdown } from '@/components/mcp/McpDropdown';
@@ -702,6 +702,9 @@ const VSCodeHeader: React.FC<VSCodeHeaderProps> = ({ title, showBack, onBack, on
   // Same rollup the work-status panel reports, so the header and the panel
   // never disagree about what this session has cost.
   const { totalCost: sessionTotalCost } = useSubagentCostRollup(currentSessionId ?? null);
+  // The session's own token total, read from the session record rather than
+  // from the messages this surface has loaded.
+  const currentSessionRecord = useSession(currentSessionId);
   const currentSessionMessages = useSessionMessages(currentSessionId ?? '');
   const currentSessionMessagesResolved = useSessionMessagesResolved(currentSessionId ?? '');
   const quotaResults = useQuotaStore((state) => state.results);
@@ -977,6 +980,7 @@ const VSCodeHeader: React.FC<VSCodeHeaderProps> = ({ title, showBack, onBack, on
           reading={toContextUsageReading(stableContextUsage)}
           contextLimit={stableContextUsage.contextLimit}
           outputLimit={stableContextUsage.outputLimit ?? 0}
+          sessionTokens={sessionTotalTokens(currentSessionRecord?.tokens)}
           cost={(sessionTotalCost ?? 0) > 0 ? sessionTotalCost : null}
           className="h-9 shrink-0 pl-1 pr-1 typography-ui-label"
           valueClassName="font-semibold leading-none"

@@ -7,6 +7,7 @@ import {
   extractTokensFromMessage,
   findLatestContextFill,
   isSameContextUsage,
+  sessionTotalTokens,
   sumTokenBreakdown,
   type ContextFillMessage,
 } from "./tokenUtils"
@@ -14,6 +15,31 @@ import {
 const assistantMessage = (tokens: unknown): { info: Message; parts: Part[] } => ({
   info: { tokens } as unknown as Message,
   parts: [],
+})
+
+describe("sessionTotalTokens", () => {
+  test("sums the session's own token aggregate", () => {
+    expect(sessionTotalTokens({
+      input: 100,
+      output: 20,
+      reasoning: 5,
+      cache: { read: 300, write: 10 },
+    })).toBe(435);
+  });
+
+  test("is zero for a missing or empty aggregate", () => {
+    expect(sessionTotalTokens(undefined)).toBe(0);
+    expect(sessionTotalTokens(null)).toBe(0);
+    expect(sessionTotalTokens({})).toBe(0);
+    expect(sessionTotalTokens({ input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } })).toBe(0);
+  })
+
+  test("sums the fields rather than preferring `total`", () => {
+    // `total` is the last round-trip's window size - what the context readout
+    // wants. A running total must be the sum, or a big context window would
+    // replace the session's real spend.
+    expect(sessionTotalTokens({ total: 200_000, input: 10, output: 2, reasoning: 0, cache: { read: 5, write: 0 } })).toBe(17);
+  })
 })
 
 describe("computeCacheHitRate", () => {

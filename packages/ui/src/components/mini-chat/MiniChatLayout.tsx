@@ -14,14 +14,14 @@ import { invokeDesktop, isElectronShell } from '@/lib/desktop';
 import { useDesktopWindowControlsLayout } from '@/hooks/useDesktopWindowControlsLayout';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { useSessionWorktreeStore } from '@/sync/session-worktree-store';
-import { useSessionMessages, useSessions } from '@/sync/sync-context';
+import { useSession, useSessionMessages, useSessions } from '@/sync/sync-context';
 import { useDirectoryStore } from '@/stores/useDirectoryStore';
 import { useProjectsStore } from '@/stores/useProjectsStore';
 import { useGitBranchLabel, useGitStore } from '@/stores/useGitStore';
 import { useConfigStore } from '@/stores/useConfigStore';
 import { Icon } from "@/components/icon/Icon";
 import { useRuntimeAPIs } from '@/hooks/useRuntimeAPIs';
-import { buildSessionContextUsage, isSameContextUsage } from '@/stores/utils/tokenUtils';
+import { buildSessionContextUsage, isSameContextUsage, sessionTotalTokens } from '@/stores/utils/tokenUtils';
 import type { SessionContextUsage } from '@/stores/types/sessionTypes';
 import { isChatDirectoryPath } from '@/lib/chatDirectories';
 
@@ -157,6 +157,9 @@ const MiniChatHeader: React.FC<{ mode: MiniChatMode }> = ({ mode }) => {
     currentSessionId ? buildSessionContextUsage(currentSessionMessages, contextLimit, outputLimit) : null
   ), [contextLimit, currentSessionId, currentSessionMessages, outputLimit]);
   const [stableContextUsage, setStableContextUsage] = React.useState<SessionContextUsage | null>(null);
+  // The session's own token total, read from the session record rather than from
+  // the messages this surface has loaded.
+  const currentSessionRecord = useSession(currentSessionId, currentDirectoryNormalized || undefined);
   const dragRegionStyle = { WebkitAppRegion: 'drag' } as React.CSSProperties;
   const noDragRegionStyle = { WebkitAppRegion: 'no-drag' } as React.CSSProperties;
 
@@ -241,6 +244,7 @@ const MiniChatHeader: React.FC<{ mode: MiniChatMode }> = ({ mode }) => {
           reading={toContextUsageReading(stableContextUsage)}
           contextLimit={stableContextUsage.contextLimit}
           outputLimit={stableContextUsage.outputLimit ?? 0}
+          sessionTokens={sessionTotalTokens(currentSessionRecord?.tokens)}
           className="h-9 shrink-0 pl-1 pr-1 typography-ui-label"
           valueClassName="font-semibold leading-none"
           hideIcon

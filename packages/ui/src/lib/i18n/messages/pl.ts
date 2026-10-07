@@ -1941,6 +1941,7 @@ export const dict: Record<I18nKey, string> = {
   'contextUsage.tooltip.cost': 'Koszt: {cost}',
   'contextUsage.compacted.description': 'Kontekst skompaktowany. Użycie zaktualizuje się po następnej odpowiedzi.',
   'contextUsage.tooltip.usedTokens': 'Zużyte tokeny: {tokens}',
+  'contextUsage.tooltip.sessionTotal': 'Suma sesji: {tokens}',
   'desktopHostSwitcher.actions.add': 'Dodaj',
   'desktopHostSwitcher.actions.addInstance': 'Dodaj instancję',
   'desktopHostSwitcher.actions.cancel': 'Anuluj',

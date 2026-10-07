@@ -19,7 +19,7 @@ import { useContextWindowLimits } from '@/hooks/useContextWindowLimits';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { useSessionWorktreeStore } from '@/sync/session-worktree-store';
 import { formatSessionWorktreeBadge } from '@/sync/session-worktree-contract';
-import { useGlobalSessionStatus, useSessionMessagesResolved } from '@/sync/sync-context';
+import { useGlobalSessionStatus, useSession, useSessionMessagesResolved } from '@/sync/sync-context';
 import { useDirectoryStore as useAppDirectoryStore } from '@/stores/useDirectoryStore';
 import { isChatDirectoryForHome } from '@/lib/chatDirectories';
 import { useSessionMessageRecordsForExport } from '@/sync/use-sync';
@@ -46,7 +46,7 @@ import {
 import {
 } from '@/components/ui/collapsible';
 import type { SessionContextUsage } from '@/stores/types/sessionTypes';
-import { isSameContextUsage } from '@/stores/utils/tokenUtils';
+import { isSameContextUsage, sessionTotalTokens } from '@/stores/utils/tokenUtils';
 import { DesktopHostSwitcherDialog } from '@/components/desktop/DesktopHostSwitcher';
 import { OpenInAppButton } from '@/components/desktop/OpenInAppButton';
 import { ProjectActionsButton } from '@/components/layout/ProjectActionsButton';
@@ -704,6 +704,10 @@ export const Header: React.FC = () => {
   const openDirectory = React.useMemo(() => {
     return worktreeDirectory || sessionDirectory || draftDirectory;
   }, [draftDirectory, sessionDirectory, worktreeDirectory]);
+  // The session's own token total, for the context readout's session line. Read
+  // from the session record rather than summed from messages, so it is correct
+  // for a long session whose history the UI has not paged in.
+  const currentSessionRecord = useSession(currentSessionId, sessionDirectory);
   const activeContextMode = useUIStore(React.useCallback((state) => {
     const directory = normalize(openDirectory || '');
     return directory ? getActiveContextMode(state.contextPanelByDirectory[directory]) : null;
@@ -1651,6 +1655,7 @@ export const Header: React.FC = () => {
               reading={toContextUsageReading(stableDesktopContextUsage)}
               contextLimit={stableDesktopContextUsage.contextLimit}
               outputLimit={stableDesktopContextUsage.outputLimit ?? 0}
+              sessionTokens={sessionTotalTokens(currentSessionRecord?.tokens)}
               size="compact"
               hideIcon
               showPercentIcon

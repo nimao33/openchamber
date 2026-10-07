@@ -1513,6 +1513,7 @@ export const dict = {
   'contextUsage.mobile.cost': 'Kosten',
   'contextUsage.mobile.usage': 'Nutzung',
   'contextUsage.tooltip.usedTokens': 'Verwendete Tokens: {tokens}',
+  'contextUsage.tooltip.sessionTotal': 'Sitzung gesamt: {tokens}',
   'contextUsage.tooltip.contextLimit': 'Kontextlimit: {tokens}',
   'contextUsage.tooltip.outputLimit': 'Ausgabelimit: {tokens}',
   'contextUsage.tooltip.cost': 'Kosten: {cost}',

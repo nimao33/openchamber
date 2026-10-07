@@ -13,6 +13,14 @@ interface ContextUsageDisplayProps {
   contextLimit: number;
   outputLimit?: number;
   cost?: number | null;
+  /**
+   * The session's own token total (`Session.tokens`), when the surface has it.
+   * The lines above it describe the *context window* - how full it is right now
+   * - which is a different question from how much the session has spent. It
+   * arrives with the session record and updates over the event stream, so
+   * showing it costs nothing and needs no message history.
+   */
+  sessionTokens?: number | null;
   size?: 'default' | 'compact';
   isMobile?: boolean;
   hideIcon?: boolean;
@@ -31,6 +39,7 @@ export const ContextUsageDisplay: React.FC<ContextUsageDisplayProps> = ({
   contextLimit,
   outputLimit,
   cost = null,
+  sessionTokens = null,
   size = 'default',
   isMobile = false,
   hideIcon = false,
@@ -79,6 +88,9 @@ export const ContextUsageDisplay: React.FC<ContextUsageDisplayProps> = ({
   const safeOutputLimit = typeof outputLimit === 'number' ? Math.max(outputLimit, 0) : 0;
   const normalizedCost = cost ?? 0;
   const hasCost = normalizedCost > 0 && Number.isFinite(normalizedCost);
+  // A session that has spent nothing yet has a real total of zero, not an
+  // unknown one, so only a missing value hides the line.
+  const hasSessionTotal = typeof sessionTokens === 'number' && Number.isFinite(sessionTokens) && sessionTokens > 0;
   const percentLabel = isMeasured ? `${Math.min(percentage, 999).toFixed(1)}%` : UNKNOWN_VALUE;
   const tooltipLines = [
     isMeasured
@@ -86,6 +98,7 @@ export const ContextUsageDisplay: React.FC<ContextUsageDisplayProps> = ({
       : t('contextUsage.compacted.description'),
     t('contextUsage.tooltip.contextLimit', { tokens: formatTokens(contextLimit) }),
     t('contextUsage.tooltip.outputLimit', { tokens: formatTokens(safeOutputLimit) }),
+    ...(hasSessionTotal ? [t('contextUsage.tooltip.sessionTotal', { tokens: formatTokens(sessionTokens) })] : []),
     ...(hasCost ? [t('contextUsage.tooltip.cost', { cost: formatMoney(normalizedCost) })] : []),
   ];
 

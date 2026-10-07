@@ -1756,6 +1756,7 @@ export const dict: Record<I18nKey, string> = {
   'contextUsage.mobile.cost': 'コスト',
   'contextUsage.mobile.usage': '使用量',
   'contextUsage.tooltip.usedTokens': '使用トークン: {tokens}',
+  'contextUsage.tooltip.sessionTotal': 'セッション合計: {tokens}',
   'contextUsage.tooltip.contextLimit': 'コンテキスト制限: {tokens}',
   'contextUsage.tooltip.outputLimit': '出力制限: {tokens}',
   'contextUsage.tooltip.cost': 'コスト: {cost}',

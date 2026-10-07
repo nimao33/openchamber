@@ -28,6 +28,22 @@ export const sumTokenBreakdown = (breakdown: TokenBreakdown | null | undefined):
 };
 
 /**
+ * Every token a session has spent, from the server-maintained aggregate on the
+ * session itself (`Session.tokens`, pushed by `session.usage.updated`). This is
+ * deliberately *not* derived from loaded messages: a long session holds far
+ * more history than the UI has paged in, so summing what is loaded would
+ * silently under-report, and loading the rest to be exact is the cost this
+ * avoids. The server already totals it, so the number costs nothing to read.
+ *
+ * This is a spend figure, not a context figure, so it sums the reported fields
+ * rather than preferring `total` - `total` is the last round-trip's window
+ * size, which is what `contextTokensFromBreakdown` wants and the opposite of
+ * what a running total wants.
+ */
+export const sessionTotalTokens = (tokens: TokenBreakdown | null | undefined): number =>
+    sumTokenBreakdown(tokens);
+
+/**
  * Tokens the context window actually holds, from one message's token payload.
  *
  * The breakdown fields accumulate across every API round-trip inside a single

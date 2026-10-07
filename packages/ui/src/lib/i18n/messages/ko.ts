@@ -1762,6 +1762,7 @@ export const dict: Record<I18nKey, string> = {
   'contextUsage.mobile.cost': '비용',
   'contextUsage.mobile.usage': '사용량',
   'contextUsage.tooltip.usedTokens': '사용됨 토큰: {tokens}',
+  'contextUsage.tooltip.sessionTotal': '세션 합계: {tokens}',
   'contextUsage.tooltip.contextLimit': '컨텍스트 한도: {tokens}',
   'contextUsage.tooltip.outputLimit': '출력 한도: {tokens}',
   'contextUsage.tooltip.cost': '비용: {cost}',
